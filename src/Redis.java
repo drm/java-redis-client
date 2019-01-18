@@ -1,4 +1,3 @@
-import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -13,9 +12,6 @@ import java.util.List;
  * Effectively a complete Redis client implementation.
  */
 public class Redis {
-	private final Encoder writer;
-	private final Parser reader;
-
 	public static class Encoder {
 		private static byte[] CRLF = new byte[]{'\r', '\n'};
 		private final OutputStream out;
@@ -151,10 +147,11 @@ public class Redis {
 		}
 	}
 
-	private final Socket socket;
+	private final Encoder writer;
+	private final Parser reader;
+
 
 	public Redis(Socket socket) throws IOException {
-		this.socket = socket;
 		this.writer = new Encoder(socket.getOutputStream());
 		this.reader = new Parser(socket.getInputStream());
 	}
