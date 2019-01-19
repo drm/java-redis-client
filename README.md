@@ -15,21 +15,20 @@ System.out.println(r.call("GET", "foo")); // will print '579'
 ```
 
 ## How data is parsed
+
 * Error responses are translated to an Exception (`Redis.Parser.ServerError`)
 * Strings become `String`
 * Numbers become `Long`
-* Arrays become List<Object>, where the entry can be any of `String`, `Long` or
-  `List<Object>`
+* Arrays become List<Object>, where the entry can be any of `String`, 
+  `Long` or `List<Object>`.
 
-
-`call` uses a template return value, which makes it possible to write the
-following:
+Since `call` uses a template return value, return type is statically inferred:
 
 ```java
 redis.call("LPUSH", "mylist", "A", "B", "C", "D");
 List<Object> l = redis.call("LRANGE", "mylist", "0", "200");
 System.out.println("Size: " + l.size()); // prints "Size: 4"
-System.out.println((String)l.get(0)); // prints "Size: 4"
+System.out.println((String)l.get(0)); // prints "A"
 ```
 
 You will have to do some casting yourself in case of List responses. The
