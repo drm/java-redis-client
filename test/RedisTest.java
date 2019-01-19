@@ -10,6 +10,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class RedisTest {
+	public static void main(String[] args) throws IOException, InterruptedException {
+		testParse();
+		integrationTest();
+		performanceTest();
+	}
+
 	private static void assertEqual(String a, String b) {
 		if (!a.equals(b)) {
 			throw new RuntimeException("Assertion failed; " + a + " is not equal to " + b);
@@ -28,12 +34,7 @@ public class RedisTest {
 		}
 	}
 
-	public static void main(String[] args) throws IOException, InterruptedException {
-		testParse();
-		integrationTest();
-	}
-
-	public static void testParse() throws IOException {
+	private static void testParse() throws IOException {
 		assertEqual((String)new Redis.Parser(new ByteArrayInputStream("+OK\r\n".getBytes())).parse(), "OK");
 		assertEqual((Long)new Redis.Parser(new ByteArrayInputStream(":1000\r\n".getBytes())).parse(), 1000);
 		assertEqual((String)new Redis.Parser(new ByteArrayInputStream("+OK\r\n".getBytes())).parse(), "OK");
@@ -54,7 +55,7 @@ public class RedisTest {
 		System.out.println("Tests passed successfully: testParse");
 	}
 
-	public static void integrationTest() throws IOException, InterruptedException {
+	private static void integrationTest() throws IOException, InterruptedException {
 		Socket s = new Socket("127.0.0.1", 6379);
 		Redis redis = new Redis(s);
 		String keyName = RedisTest.class.getCanonicalName();
@@ -68,25 +69,29 @@ public class RedisTest {
 		Redis r = new Redis(new Socket("127.0.0.1", 6379));
 		r.call("SET", "foo", "123");
 		r.call("INCRBY", "foo", "456");
-		System.out.println((String)r.call("GET", "foo")); // will print '579'
+		assertEqual("579", r.call("GET", "foo"));
+	}
 
-		s = new Socket("127.0.0.1", 6379);
-		redis = new Redis(s);
-		redis.call("DEL", keyName + ":queue");
+	private static void performanceTest() throws IOException, InterruptedException {
 		final int numThreads = 200;
-		final int numMessages = 25000;
+		final int numMessages = 250000;
+
+		Socket s = new Socket("127.0.0.1", 6379);
+		Redis redis = new Redis(s);
+		String queueKeyName = RedisTest.class.getCanonicalName() + ":queue";
+		redis.call("DEL", queueKeyName);
 
 		ExecutorService pool = Executors.newFixedThreadPool(numThreads);
 		AtomicLong count = new AtomicLong(0);
 
 		LocalDateTime start = LocalDateTime.now();
-		for (int i = 0; i < numThreads/2; i++) {
+		for (int i = 0; i < numThreads; i++) {
 			pool.submit(
 				() -> {
 					try {
 						Redis redis2 = new Redis(new Socket("127.0.0.1", 6379));
 						for (int n = 0; n < numMessages / numThreads; n++) {
-							redis2.call("RPUSH", keyName + ":queue", msg);
+							redis2.call("RPUSH", queueKeyName, msg);
 						}
 					} catch (IOException e) {
 						e.printStackTrace();
@@ -95,13 +100,13 @@ public class RedisTest {
 				}
 			);
 		}
-		for (int i = 0; i < numThreads/2; i++) {
+		for (int i = 0; i < numThreads; i++) {
 			pool.submit(
 				() -> {
 					try {
 						Redis redis2 = new Redis(new Socket("127.0.0.1", 6379));
 						for (int n = 0; n < numMessages / numThreads; n++) {
-							assertEqual(msg, (String)((List)redis2.call("BLPOP", keyName + ":queue", "0")).get(1));
+							assertEqual(msg, (String)((List)redis2.call("BLPOP", queueKeyName, "0")).get(1));
 							count.incrementAndGet();
 						}
 					} catch (IOException e) {
@@ -114,8 +119,19 @@ public class RedisTest {
 
 		pool.shutdown();
 		pool.awaitTermination(2, TimeUnit.MINUTES);
-		System.out.println(count.get() + " messages of " + msg.getBytes().length + " bytes passed in " + start.until(LocalDateTime.now(), ChronoUnit.MILLIS) / 1000f + " ms");
+
+		assertEqual(count.get(), numMessages);
+		float t = start.until(LocalDateTime.now(), ChronoUnit.MILLIS) / 1000f;
+		System.out.printf(
+			"%d messages of %d bytes passed in %s ms, total %.2f mB throughput, avg %.2f msg/s",
+			count.get(),
+			msg.getBytes().length,
+			t,
+			msg.getBytes().length * count.get() / 1024f / 1024f,
+			count.get() / t
+		);
 	}
+
 
 	private static String msg = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Suspendisse in purus in dui cursus dignissim id at neque. Duis porta ullamcorper aliquam. Suspendisse hendrerit urna id felis aliquet rutrum. Fusce ultricies magna elit, id volutpat risus dictum et. Sed pretium elementum arcu, vitae aliquet ligula. Phasellus viverra vel arcu vel dictum. Fusce ac purus fringilla neque dapibus sollicitudin sit amet et felis. Nulla gravida fringilla ex sit amet faucibus. Etiam sit amet nisl id est dictum porttitor eget nec risus. Vivamus et ultrices arcu, vitae accumsan lectus. Phasellus tempus tortor lectus, vitae consequat enim dictum auctor. Ut elementum sapien eu diam tempus condimentum.\n"+
 		"\n"+

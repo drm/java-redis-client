@@ -16,7 +16,16 @@ System.out.println(r.call("GET", "foo")); // will print '579'
 ```
 
 ## How should I manage my connections?
-However you wish. This library is a protocol implementation only. In my opinion, managing
-connection pools or stuff like that is not at all Redis-specific. So either find another
-library for it, or write something simple using a BlockinDeque or simply create connections
-on the fly whenever you need them.
+However you wish. This library is a protocol implementation only. Managing a connection pool
+is not at all Redis-specific, so it doesn't belong here.
+ 
+
+Having said that, this mostly depends on your use case. Typically
+if you have a webserver with 20 threads, you can have a socket per thread managed somewhere
+(i.e. ThreadLocal) and if you run a threadpool with 20 workers you can have one socket per
+thread there as well. This keeps things simple and practical to reason about and you don't
+have to worry who needs to create the socket at what point in time. You do need some error
+handling which, in case of managing the sockets centrally is a tiny bit easier.
+
+Summarizing, this is a trade-off which you can decide on for your own. Generally speaking:
+don't overcomplicate stuff without good reason.
