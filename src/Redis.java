@@ -1,6 +1,4 @@
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.Socket;
 import java.util.Arrays;
 import java.util.LinkedList;
@@ -53,6 +51,7 @@ public class Redis {
 					throw new IllegalArgumentException("Unexpected type " + o.getClass().getCanonicalName());
 				}
 			}
+			out.flush();
 		}
 	}
 
@@ -151,8 +150,8 @@ public class Redis {
 	private final Parser reader;
 
 	public Redis(Socket socket) throws IOException {
-		this.writer = new Encoder(socket.getOutputStream());
-		this.reader = new Parser(socket.getInputStream());
+		this.writer = new Encoder(new BufferedOutputStream(socket.getOutputStream(), 64 * 1024));
+		this.reader = new Parser(new BufferedInputStream(socket.getInputStream(), 64 * 1024));
 	}
 
 	public <T> T call(String... args) throws IOException {
