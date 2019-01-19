@@ -64,17 +64,64 @@ public class RedisTest {
 		assertEqual("1", redis.call("GET", keyName));
 		redis.call("INCR", keyName);
 		assertEqual("2", redis.call("GET", keyName));
+		redis.call("DEL", keyName);
 		s.close();
 
-		Redis r = new Redis(new Socket("127.0.0.1", 6379));
-		r.call("SET", "foo", "123");
-		r.call("INCRBY", "foo", "456");
-		assertEqual("579", r.call("GET", "foo"));
+		redis = new Redis(new Socket("127.0.0.1", 6379));
+		redis.call("SET", "foo", "123");
+		redis.call("INCRBY", "foo", "456");
+		assertEqual("579", redis.call("GET", "foo"));
+		redis.call("DEL", keyName);
+		s.close();
+
+		redis = new Redis(new Socket("127.0.0.1", 6379));
+		redis.call("LPUSH", keyName, "A", "B", "C", "D");
+		List<Object> l = redis.call("LRANGE", "mylist", "0", "200");
+		assertEqual(l.size(), 4);
+		redis.call("DEL", keyName);
+		s.close();
+
+		redis = new Redis(new Socket("127.0.0.1", 6379));
+		List<Object> result = redis.pipeline()
+			.call("INCR", keyName)
+			.call("INCR", keyName)
+			.call("INCR", keyName)
+			.call("DEL", keyName)
+			.read();
+		assertEqual(result.size(), 4);
+		assertEqual(1, (Long)result.get(0));
+		assertEqual(2, (Long)result.get(1));
+		assertEqual(3, (Long)result.get(2));
+		s.close();
+
+		redis = new Redis(new Socket("127.0.0.1", 6379));
+		redis.call("DEL", keyName);
+		result = redis.pipeline()
+		    .call("MULTI")
+			.call("INCR", keyName)
+			.call("INCR", keyName)
+			.call("INCR", keyName)
+			.call("INCR", keyName)
+			.call("EXEC")
+			.read();
+
+		assertEqual(result.size(), 6);
+		assertEqual("OK", (String)result.get(0));
+		assertEqual("QUEUED", (String)result.get(1));
+		assertEqual("QUEUED", (String)result.get(2));
+		assertEqual("QUEUED", (String)result.get(3));
+		assertEqual("QUEUED", (String)result.get(4));
+		assertEqual(1, (Long)((List<Object>)result.get(5)).get(0));
+		assertEqual(2, (Long)((List<Object>)result.get(5)).get(1));
+		assertEqual(3, (Long)((List<Object>)result.get(5)).get(2));
+		assertEqual(4, (Long)((List<Object>)result.get(5)).get(3));
+		redis.call("DEL", keyName);
+		s.close();
 	}
 
 	private static void performanceTest() throws IOException, InterruptedException {
 		final int numThreads = 200;
-		final int numMessages = 250000;
+		final int numMessages = 25000;
 
 		Socket s = new Socket("127.0.0.1", 6379);
 		Redis redis = new Redis(s);

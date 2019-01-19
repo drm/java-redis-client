@@ -158,4 +158,29 @@ public class Redis {
 		writer.write(Arrays.asList(args));
 		return (T)reader.parse();
 	}
+
+	public static abstract class Pipeline {
+		public abstract Pipeline call(String... args) throws IOException;
+		public abstract List<Object> read() throws IOException;
+	}
+
+	public Pipeline pipeline() {
+		return new Pipeline() {
+			private int n = 0;
+
+			public Pipeline call(String... args) throws IOException {
+				writer.write(Arrays.asList(args));
+				n ++;
+				return this;
+			}
+
+			public List<Object> read() throws IOException {
+				List<Object> ret = new LinkedList<>();
+				while (n -- > 0) {
+					ret.add(reader.parse());
+				}
+				return ret;
+			}
+		};
+	}
 }
