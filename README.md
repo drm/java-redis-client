@@ -21,6 +21,7 @@ System.out.println(r.call("GET", "foo")); // will print '579'
 * Arrays become List<Object>, where the entry can be any of `String`, `Long` or
   `List<Object>`
 
+
 `call` uses a template return value, which makes it possible to write the
 following:
 
