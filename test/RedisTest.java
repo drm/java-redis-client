@@ -2,6 +2,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class RedisTest {
 	private static void assertEqual(String a, String b) {
@@ -67,16 +69,26 @@ public class RedisTest {
 		s = new Socket("127.0.0.1", 6379);
 		redis = new Redis(s);
 
-		System.out.println("Now waiting for messages on " + keyName + ":queue");
-		final Redis finalRedis = redis;
-		(new Thread(() -> {
-			try {
-				finalRedis.call("RPUSH", keyName + ":queue", "A");
-			} catch (IOException e) {
-				e.printStackTrace();
+		ExecutorService pool = Executors.newFixedThreadPool(10);
+		pool.submit(
+			() -> {
+				try {
+					Redis redis2 = new Redis(new Socket("127.0.0.1", 6379));
+					for (int n = 0; n < 100; n++) {
+						redis2.call("RPUSH", keyName + ":queue", "A");
+					}
+				} catch (IOException e) {
+					e.printStackTrace();
+					throw new RuntimeException(e);
+				}
 			}
-		})).run();
+		);
 
-		assertEqual("A", (String)((List)redis.call("BLPOP", keyName + ":queue", "0")).get(1));
+		System.out.println("Now consuming messages on " + keyName + ":queue");
+		for (int n = 0; n < 100; n ++) {
+			System.out.println("Queue length is now " + redis.call("LLEN", keyName + ":queue"));
+			assertEqual("A", (String)((List)redis.call("BLPOP", keyName + ":queue", "0")).get(1));
+		}
+		pool.shutdown();
 	}
 }

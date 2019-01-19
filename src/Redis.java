@@ -150,7 +150,6 @@ public class Redis {
 	private final Encoder writer;
 	private final Parser reader;
 
-
 	public Redis(Socket socket) throws IOException {
 		this.writer = new Encoder(socket.getOutputStream());
 		this.reader = new Parser(socket.getInputStream());
