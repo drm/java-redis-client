@@ -2,8 +2,8 @@
 Low level Redis client (but you really won't need anything more than this!)
 
 ## Usage
-Either package the library using whatever package manager you fancy, or just
-copy it into your source tree.
+Either package the library using `./build.sh` or whatever package manager you
+fancy, or just copy it into your source tree.
 
 Then create a socket connection and start speaking Redis. 
 
