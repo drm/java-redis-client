@@ -1,3 +1,5 @@
+package nl.melp.redis;
+
 import java.io.*;
 import java.net.Socket;
 import java.util.Arrays;
@@ -5,9 +7,9 @@ import java.util.LinkedList;
 import java.util.List;
 
 /**
- * A lightweight implementation of the Redis server protocol.
+ * A lightweight implementation of the nl.melp.redis.Redis server protocol.
  *
- * Effectively a complete Redis client implementation.
+ * Effectively a complete nl.melp.redis.Redis client implementation.
  */
 public class Redis {
 	public static class Encoder {

@@ -1,3 +1,5 @@
+package nl.melp.redis;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.Socket;
@@ -55,7 +57,7 @@ public class RedisTest {
 		System.out.println("Tests passed successfully: testParse");
 	}
 
-	private static void integrationTest() throws IOException, InterruptedException {
+	private static void integrationTest() throws IOException {
 		Socket s = new Socket("127.0.0.1", 6379);
 		Redis redis = new Redis(s);
 		String keyName = RedisTest.class.getCanonicalName();

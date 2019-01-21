@@ -8,7 +8,7 @@ copy it into your source tree.
 Then create a socket connection and start speaking Redis. 
 
 ```java
-Redis r = new Redis(new Socket("127.0.0.1", 6379));
+nl.melp.redis.Redis r = new nl.melp.redis.Redis(new Socket("127.0.0.1", 6379));
 r.call("SET", "foo", "123");
 r.call("INCRBY", "foo", "456");
 System.out.println(r.call("GET", "foo")); // will print '579'
@@ -16,7 +16,7 @@ System.out.println(r.call("GET", "foo")); // will print '579'
 
 ## How data is parsed
 
-* Error responses are translated to an Exception (`Redis.Parser.ServerError`)
+* Error responses are translated to an Exception (`nl.melp.redis.Redis.Parser.ServerError`)
 * Strings become `String`
 * Numbers become `Long`
 * Arrays become List<Object>, where the entry can be any of `String`, 
@@ -36,7 +36,7 @@ reasoning here is that you know what data to expect so you're responsible for
 applying the correct casts in the correct context.  
 
 Refer to the Redis documentation for the return types of all calls and
-`RedisTest` for some working examples.
+`nl.melp.redis.RedisTest` for some working examples.
 
 ## Pipelining
 The idea of pipelining is that you can keep writing commands without having
