@@ -102,6 +102,8 @@ public class Redis {
 						ret = arr;
 					}
 					break;
+				case -1:
+					throw new ServerError("EOF");
 				default:
 					throw new ParseException("Unexpected input");
 			}
