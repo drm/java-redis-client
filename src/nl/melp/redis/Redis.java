@@ -157,7 +157,7 @@ public class Redis {
 	}
 
 	public <T> T call(String... args) throws IOException {
-		writer.write(Arrays.asList(args));
+		writer.write(Arrays.asList((Object[])args));
 		return (T)reader.parse();
 	}
 
@@ -171,7 +171,7 @@ public class Redis {
 			private int n = 0;
 
 			public Pipeline call(String... args) throws IOException {
-				writer.write(Arrays.asList(args));
+				writer.write(Arrays.asList((Object[])args));
 				n ++;
 				return this;
 			}
