@@ -78,7 +78,8 @@ public class Redis {
 
 		Object parse() throws IOException {
 			Object ret;
-			switch (this.input.read()) {
+			int read = this.input.read();
+			switch (read) {
 				case '+':
 					ret = this.parseSimpleString();
 					break;
@@ -105,21 +106,34 @@ public class Redis {
 				case -1:
 					throw new ServerError("EOF");
 				default:
-					throw new ParseException("Unexpected input");
+					throw new ParseException("Unexpected input: " + (byte)read);
 			}
 
 			return ret;
 		}
 
 		private String parseBulkString() throws IOException {
-			long p = parseNumber();
-			if (p > Integer.MAX_VALUE) {
-				throw new ParseException("Unsupported value length for bulk string");
-			}
-			if (p == -1) {
+			final long expectedLength = parseNumber();
+			if (expectedLength == -1) {
 				return null;
 			}
-			return new String(scanCr((int)p));
+			if (expectedLength > Integer.MAX_VALUE) {
+				throw new ParseException("Unsupported value length for bulk string");
+			}
+			final int numBytes = (int) expectedLength;
+			final byte[] buffer = new byte[numBytes];
+			int read = 0;
+			while (read < expectedLength) {
+				read += input.read(buffer, read, numBytes - read);
+			}
+			if (input.read() != '\r') {
+				throw new ParseException("Expected CR");
+			}
+			if (input.read() != '\n') {
+				throw new ParseException("Expected LF");
+			}
+
+			return new String(buffer);
 		}
 
 		private String parseSimpleString() throws IOException {

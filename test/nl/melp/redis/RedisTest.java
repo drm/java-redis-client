@@ -47,6 +47,10 @@ public class RedisTest {
 			(String)new Redis.Parser(new ByteArrayInputStream("$10\r\n0123456789\r\n".getBytes())).parse(), "0123456789"
 		);
 
+		assertEqual(
+			(String)new Redis.Parser(new ByteArrayInputStream("$12\r\n01234\r\n56789\r\n".getBytes())).parse(), "01234\r\n56789"
+		);
+
 		List arr = (List)new Redis.Parser(new ByteArrayInputStream("*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n:5\r\n".getBytes())).parse();
 		assertEqual(arr.size(), 5);
 		assertEqual((Long)arr.get(0), 1);
@@ -54,6 +58,10 @@ public class RedisTest {
 		assertEqual((Long)arr.get(2), 3);
 		assertEqual((Long)arr.get(3), 4);
 		assertEqual((Long)arr.get(4), 5);
+
+		List arr2 = (List)new Redis.Parser(new ByteArrayInputStream("*1\r\n$5\r\n12345\r\n".getBytes())).parse();
+		assertEqual(arr2.size(), 1);
+		assertEqual((String)arr2.get(0), "12345");
 		System.out.println("Tests passed successfully: testParse");
 	}
 
@@ -70,9 +78,19 @@ public class RedisTest {
 		s.close();
 
 		redis = new Redis(new Socket("127.0.0.1", 6379));
-		redis.call("SET", "foo", "123");
-		redis.call("INCRBY", "foo", "456");
-		assertEqual("579", redis.call("GET", "foo"));
+		redis.call("SET", keyName, msg);
+		assertEqual(msg, redis.call("GET", keyName));
+		s.close();
+
+		redis = new Redis(new Socket("127.0.0.1", 6379));
+		redis.call("SET", keyName, msg.replace("\n", "\r\n"));
+		assertEqual(msg.replace("\n", "\r\n"), redis.call("GET", keyName));
+		s.close();
+
+		redis = new Redis(new Socket("127.0.0.1", 6379));
+		redis.call("SET", keyName, "123");
+		redis.call("INCRBY", keyName, "456");
+		assertEqual("579", redis.call("GET", keyName));
 		redis.call("DEL", keyName);
 		s.close();
 
@@ -119,6 +137,10 @@ public class RedisTest {
 		assertEqual(4, (Long)((List<Object>)result.get(5)).get(3));
 		redis.call("DEL", keyName);
 		s.close();
+
+		redis = new Redis(new Socket("127.0.0.1", 6379));
+		System.out.println((String)redis.call("INFO"));
+		s.close();
 	}
 
 	private static void performanceTest() throws IOException, InterruptedException {
@@ -142,7 +164,7 @@ public class RedisTest {
 						for (int n = 0; n < numMessages / numThreads; n++) {
 							redis2.call("RPUSH", queueKeyName, msg);
 						}
-					} catch (IOException e) {
+					} catch (Redis.Parser.ParseException | IOException e) {
 						e.printStackTrace();
 						throw new RuntimeException(e);
 					}
@@ -158,7 +180,7 @@ public class RedisTest {
 							assertEqual(msg, (String)((List)redis2.call("BLPOP", queueKeyName, "0")).get(1));
 							count.incrementAndGet();
 						}
-					} catch (IOException e) {
+					} catch (Redis.Parser.ParseException | IOException e) {
 						e.printStackTrace();
 						throw new RuntimeException(e);
 					}
