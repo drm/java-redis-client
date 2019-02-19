@@ -78,7 +78,7 @@ public class RedisTest {
 
 		redis = new Redis(new Socket("127.0.0.1", 6379));
 		redis.call("LPUSH", keyName, "A", "B", "C", "D");
-		List<Object> l = redis.call("LRANGE", "mylist", "0", "200");
+		List<Object> l = redis.call("LRANGE", keyName, "0", "200");
 		assertEqual(l.size(), 4);
 		redis.call("DEL", keyName);
 		s.close();
