@@ -7,20 +7,20 @@ import java.util.LinkedList;
 import java.util.List;
 
 /**
- * A lightweight implementation of the nl.melp.redis.Redis server protocol.
+ * A lightweight implementation of the Redis server protocol.
  *
- * Effectively a complete nl.melp.redis.Redis client implementation.
+ * Effectively a complete Redis client implementation.
  */
 public class Redis {
-	public static class Encoder {
+	static class Encoder {
 		private static byte[] CRLF = new byte[]{'\r', '\n'};
 		private final OutputStream out;
 
-		public Encoder(OutputStream out) {
+		Encoder(OutputStream out) {
 			this.out = out;
 		}
 
-		public void write(String s) throws IOException {
+		void write(String s) throws IOException {
 			byte[] value = s.getBytes();
 			out.write('$');
 			out.write(Long.toString(value.length).getBytes());
@@ -29,13 +29,13 @@ public class Redis {
 			out.write(CRLF);
 		}
 
-		public void write(long v) throws IOException {
+		void write(long v) throws IOException {
 			out.write(':');
 			out.write(Long.toString(v).getBytes());
 			out.write(CRLF);
 		}
 
-		public void write(List<Object> list) throws IOException {
+		void write(List<Object> list) throws IOException {
 			out.write('*');
 			out.write(Long.toString(list.size()).getBytes());
 			out.write(CRLF);
@@ -57,14 +57,14 @@ public class Redis {
 		}
 	}
 
-	public static class Parser {
-		public static class ParseException extends RuntimeException {
-			public ParseException(String msg) {
+	static class Parser {
+		static class ParseException extends RuntimeException {
+			ParseException(String msg) {
 				super(msg);
 			}
 		}
 
-		public static class ServerError extends RuntimeException {
+		static class ServerError extends RuntimeException {
 			public ServerError(String msg) {
 				super(msg);
 			}
@@ -72,11 +72,11 @@ public class Redis {
 
 		private final InputStream input;
 
-		public Parser(InputStream input) {
+		Parser(InputStream input) {
 			this.input = input;
 		}
 
-		public Object parse() throws IOException {
+		Object parse() throws IOException {
 			Object ret;
 			switch (this.input.read()) {
 				case '+':
