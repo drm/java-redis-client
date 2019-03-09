@@ -5,17 +5,25 @@ import java.io.IOException;
 import java.net.Socket;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public class RedisTest {
 	public static void main(String[] args) throws IOException, InterruptedException {
 		testParse();
 		integrationTest();
-		performanceTest();
+		bufferSizePerformanceTest();
+		socketManagementPerformanceTest();
 	}
 
 	private static void assertEqual(String a, String b) {
@@ -65,106 +73,216 @@ public class RedisTest {
 		System.out.println("Tests passed successfully: testParse");
 	}
 
-	private static void integrationTest() throws IOException {
-		Socket s = new Socket("127.0.0.1", 6379);
-		Redis redis = new Redis(s);
-		String keyName = RedisTest.class.getCanonicalName();
-		redis.call("SET", keyName, "0");
-		redis.call("INCR", keyName);
-		assertEqual("1", redis.call("GET", keyName));
-		redis.call("INCR", keyName);
-		assertEqual("2", redis.call("GET", keyName));
-		redis.call("DEL", keyName);
-		s.close();
+	private static void integrationTest() throws InterruptedException {
+		final String keyName = RedisTest.class.getCanonicalName();
+		Consumer<Redis.FailableConsumer<Redis, IOException>> exec = (consumer) -> {
+			try {
+				Redis.run(consumer, "127.0.0.1", 6379);
+			} catch (IOException e) {
+				e.printStackTrace();
+				throw new RuntimeException(e);
+			}
+		};
 
-		redis = new Redis(new Socket("127.0.0.1", 6379));
-		redis.call("SET", keyName, msg);
-		assertEqual(msg, redis.call("GET", keyName));
-		s.close();
+		exec.accept((redis) -> {
+			redis.call("SET", keyName, "0");
+			redis.call("INCR", keyName);
+			assertEqual("1", redis.call("GET", keyName));
+			redis.call("INCR", keyName);
+			assertEqual("2", redis.call("GET", keyName));
+			redis.call("DEL", keyName);
+		});
+		exec.accept(
+			(redis) -> {
+				redis.call("SET", keyName, msg);
+				assertEqual(msg, redis.call("GET", keyName));
+			}
+		);
+		exec.accept(
+			(redis) -> {
+				redis.call("SET", keyName, msg.replace("\n", "\r\n"));
+				assertEqual(msg.replace("\n", "\r\n"), redis.call("GET", keyName));
+			}
+		);
+		exec.accept(
+			(redis) -> {
+				redis.call("SET", keyName, "123");
+				redis.call("INCRBY", keyName, "456");
+				assertEqual("579", redis.call("GET", keyName));
+				redis.call("DEL", keyName);
+			}
+		);
 
-		redis = new Redis(new Socket("127.0.0.1", 6379));
-		redis.call("SET", keyName, msg.replace("\n", "\r\n"));
-		assertEqual(msg.replace("\n", "\r\n"), redis.call("GET", keyName));
-		s.close();
+		exec.accept(
+			(redis) -> {
+				redis.call("LPUSH", keyName, "A", "B", "C", "D");
+				List<Object> l = redis.call("LRANGE", keyName, "0", "200");
+				assertEqual(l.size(), 4);
+				redis.call("DEL", keyName);
+			}
+		);
 
-		redis = new Redis(new Socket("127.0.0.1", 6379));
-		redis.call("SET", keyName, "123");
-		redis.call("INCRBY", keyName, "456");
-		assertEqual("579", redis.call("GET", keyName));
-		redis.call("DEL", keyName);
-		s.close();
+		exec.accept(
+			(redis) -> {
+				redis = new Redis(new Socket("127.0.0.1", 6379));
+				List<Object> result = redis.pipeline()
+					.call("INCR", keyName)
+					.call("INCR", keyName)
+					.call("INCR", keyName)
+					.call("DEL", keyName)
+					.read();
+				assertEqual(result.size(), 4);
+				assertEqual(1, (Long)result.get(0));
+				assertEqual(2, (Long)result.get(1));
+				assertEqual(3, (Long)result.get(2));
+			}
+		);
 
-		redis = new Redis(new Socket("127.0.0.1", 6379));
-		redis.call("LPUSH", keyName, "A", "B", "C", "D");
-		List<Object> l = redis.call("LRANGE", keyName, "0", "200");
-		assertEqual(l.size(), 4);
-		redis.call("DEL", keyName);
-		s.close();
+		exec.accept(
+			(redis) -> {
+				redis.call("DEL", keyName);
+				List<Object> result = redis.pipeline()
+					.call("MULTI")
+					.call("INCR", keyName)
+					.call("INCR", keyName)
+					.call("INCR", keyName)
+					.call("INCR", keyName)
+					.call("EXEC")
+					.read();
 
-		redis = new Redis(new Socket("127.0.0.1", 6379));
-		List<Object> result = redis.pipeline()
-			.call("INCR", keyName)
-			.call("INCR", keyName)
-			.call("INCR", keyName)
-			.call("DEL", keyName)
-			.read();
-		assertEqual(result.size(), 4);
-		assertEqual(1, (Long)result.get(0));
-		assertEqual(2, (Long)result.get(1));
-		assertEqual(3, (Long)result.get(2));
-		s.close();
+				assertEqual(result.size(), 6);
+				assertEqual("OK", (String)result.get(0));
+				assertEqual("QUEUED", (String)result.get(1));
+				assertEqual("QUEUED", (String)result.get(2));
+				assertEqual("QUEUED", (String)result.get(3));
+				assertEqual("QUEUED", (String)result.get(4));
+				assertEqual(1, (Long)((List<Object>)result.get(5)).get(0));
+				assertEqual(2, (Long)((List<Object>)result.get(5)).get(1));
+				assertEqual(3, (Long)((List<Object>)result.get(5)).get(2));
+				assertEqual(4, (Long)((List<Object>)result.get(5)).get(3));
+				redis.call("DEL", keyName);
+			}
+		);
 
-		redis = new Redis(new Socket("127.0.0.1", 6379));
-		redis.call("DEL", keyName);
-		result = redis.pipeline()
-		    .call("MULTI")
-			.call("INCR", keyName)
-			.call("INCR", keyName)
-			.call("INCR", keyName)
-			.call("INCR", keyName)
-			.call("EXEC")
-			.read();
+		exec.accept(
+			(redis) -> {
+				redis.call("INFO");
+			}
+		);
 
-		assertEqual(result.size(), 6);
-		assertEqual("OK", (String)result.get(0));
-		assertEqual("QUEUED", (String)result.get(1));
-		assertEqual("QUEUED", (String)result.get(2));
-		assertEqual("QUEUED", (String)result.get(3));
-		assertEqual("QUEUED", (String)result.get(4));
-		assertEqual(1, (Long)((List<Object>)result.get(5)).get(0));
-		assertEqual(2, (Long)((List<Object>)result.get(5)).get(1));
-		assertEqual(3, (Long)((List<Object>)result.get(5)).get(2));
-		assertEqual(4, (Long)((List<Object>)result.get(5)).get(3));
-		redis.call("DEL", keyName);
-		s.close();
-
-		redis = new Redis(new Socket("127.0.0.1", 6379));
-		System.out.println((String)redis.call("INFO"));
-		s.close();
+		// This test checks if `call` will return null from a disconnected connection.
+		ScheduledExecutorService r = Executors.newSingleThreadScheduledExecutor();
+		r.schedule(
+			() -> exec.accept(
+				(redis) -> redis.call("CLIENT", "KILL", "TYPE", "normal")
+			),
+			500,
+			TimeUnit.MILLISECONDS
+		);
+		AtomicBoolean b = new AtomicBoolean(false);
+		exec.accept(
+			(redis) -> {
+				assertTrue(null == redis.call("BLPOP", "blocking", "2"));
+				b.set(true);
+			}
+		);
+		r.shutdown();
+		r.awaitTermination(2, TimeUnit.SECONDS);
+		assertTrue(b.get());
 	}
 
-	private static void performanceTest() throws IOException, InterruptedException {
+	private static void bufferSizePerformanceTest() throws IOException, InterruptedException {
 		final int numThreads = 200;
 		final int numMessages = 25000;
 
-		Socket s = new Socket("127.0.0.1", 6379);
-		Redis redis = new Redis(s);
+		// Test in- and output buffer sizes.
+		for (Map.Entry<MessageProducerTypeName, Supplier<String>> type: messageProducerTypes.entrySet()) {
+			for (int ab = 0; ab <= 1; ab++) {
+				// simple trick to repeat test with different configuration
+				final boolean isInputBufferTest = (ab == 0);
+
+				for (int i = 14; i <= 20; i++) {
+					int bufSize = 1 << i;
+					performanceTest(
+						String.format(
+							isInputBufferTest
+								? "%s : Input buffer size test: 0x%x"
+								: "%s : Output buffer size test: 0x%x",
+							type.getKey(),
+							bufSize
+						),
+						numThreads,
+						numMessages,
+						() -> {
+							try {
+								if (isInputBufferTest) {
+									return new Redis(new Socket("127.0.0.1", 6379), bufSize, 1 << 16);
+								} else {
+									return new Redis(new Socket("127.0.0.1", 6379), 1 << 16, bufSize);
+								}
+							} catch (IOException e) {
+								e.printStackTrace();
+							}
+							return null;
+						},
+						type.getValue()
+					);
+				}
+			}
+		}
+	}
+
+	private static void socketManagementPerformanceTest() throws IOException, InterruptedException {
+		final int numThreads = 200;
+		final int numMessages = 25000;
+
+			// Test thread local vs direct connect
+			for (int ab = 0; ab <= 1; ab++) {
+				// simple trick to repeat test with different configuration
+				final boolean isThreadLocalTest = (ab == 0);
+				ThreadLocal<Redis> redis = new ThreadLocal<>();
+
+				performanceTest(
+					isThreadLocalTest ? "Thread local" : "Direct connect",
+					numThreads,
+					numMessages,
+					() -> {
+						try {
+							if (isThreadLocalTest) {
+								if (redis.get() == null) {
+									redis.set(new Redis(new Socket("127.0.0.1", 6379)));
+								}
+								return redis.get();
+							}
+							return new Redis(new Socket("127.0.0.1", 6379));
+						} catch (IOException e) {
+							e.printStackTrace();
+						}
+						return null;
+					},
+					messageProducerTypes.get(MessageProducerTypeName.VARIABLE_SIZE)
+				);
+			}
+	}
+
+	private static void performanceTest(String description, int numThreads, int numMessages, Supplier<Redis> connector, Supplier<String> dataProducer) throws IOException, InterruptedException {
 		String queueKeyName = RedisTest.class.getCanonicalName() + ":queue";
-		redis.call("DEL", queueKeyName);
+		connector.get().call("DEL", queueKeyName);
 
 		ExecutorService pool = Executors.newFixedThreadPool(numThreads);
 		AtomicLong count = new AtomicLong(0);
+		AtomicLong size = new AtomicLong(0);
 
 		LocalDateTime start = LocalDateTime.now();
 		for (int i = 0; i < numThreads; i++) {
 			pool.submit(
 				() -> {
 					try {
-						Redis redis2 = new Redis(new Socket("127.0.0.1", 6379));
+						Redis redis2 = connector.get();
 						for (int n = 0; n < numMessages / numThreads; n++) {
-							redis2.call("RPUSH", queueKeyName, msg);
+							redis2.call("RPUSH", queueKeyName, dataProducer.get());
 						}
-					} catch (Redis.Parser.ParseException | IOException e) {
+					} catch (IOException e) {
 						e.printStackTrace();
 						throw new RuntimeException(e);
 					}
@@ -175,12 +293,14 @@ public class RedisTest {
 			pool.submit(
 				() -> {
 					try {
-						Redis redis2 = new Redis(new Socket("127.0.0.1", 6379));
+						Redis redis2 = connector.get();
 						for (int n = 0; n < numMessages / numThreads; n++) {
-							assertEqual(msg, (String)((List)redis2.call("BLPOP", queueKeyName, "0")).get(1));
+							List value = redis2.call("BLPOP", queueKeyName, "0");
+							assertTrue(value.get(1) instanceof String);
+							size.addAndGet(((String)value.get(1)).length());
 							count.incrementAndGet();
 						}
-					} catch (Redis.Parser.ParseException | IOException e) {
+					} catch (IOException e) {
 						e.printStackTrace();
 						throw new RuntimeException(e);
 					}
@@ -194,11 +314,12 @@ public class RedisTest {
 		assertEqual(count.get(), numMessages);
 		float t = start.until(LocalDateTime.now(), ChronoUnit.MILLIS) / 1000f;
 		System.out.printf(
-			"%d messages of %d bytes passed in %s ms, total %.2f mB throughput, avg %.2f msg/s",
+			"%s:\n%d messages of avg %d string length passed in %s ms, total %.2f mB throughput, avg %.2f msg/s\n",
+			description,
 			count.get(),
-			msg.getBytes().length,
+			size.get() / count.get(),
 			t,
-			msg.getBytes().length * count.get() / 1024f / 1024f,
+			size.get() / 1024f / 1024f,
 			count.get() / t
 		);
 	}
@@ -264,4 +385,38 @@ public class RedisTest {
 		"\n"+
 		"Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia Curae; Donec nec justo et lectus laoreet faucibus eget sit amet libero. Ut rutrum dui in dui pellentesque ullamcorper. Suspendisse non varius eros. Proin rutrum at erat in auctor. Proin non hendrerit ante, eget pulvinar eros. Fusce congue augue quam, at rhoncus nunc rutrum eu. Cras rhoncus odio nec nunc lacinia, nec aliquam ligula pretium. Nam dignissim placerat mollis. Aliquam erat volutpat. Quisque turpis tortor, faucibus vitae odio et, euismod dapibus eros. Interdum et malesuada fames ac ante ipsum primis in faucibus. Donec viverra mauris sed sollicitudin feugiat. Donec et mauris eu elit sollicitudin maximus. Maecenas vitae eros malesuada lacus vulputate bibendum eget non felis."
 		;
+
+	enum MessageProducerTypeName {
+		CONSTANT_SIZE_SMALL,
+		CONSTANT_SIZE_LARGER,
+		CONSTANT_SIZE_LARGE,
+		VARIABLE_SIZE
+	}
+
+	private static final Map<MessageProducerTypeName, Supplier<String>> messageProducerTypes = new LinkedHashMap<>();
+	private static final String[] strings;
+	static {
+		final String small = msg.substring(0, 256);
+		final String larger = msg;
+		final AtomicInteger rotate = new AtomicInteger(0);
+		final String large = (((Supplier<String>) () -> {
+			StringBuilder tmp = new StringBuilder();
+			for (int i = 0; i < 10; i ++) {
+				tmp.append(msg);
+			}
+			return tmp.toString();
+		}).get());
+
+		strings = new String[]{
+			small, larger, large
+		};
+
+		messageProducerTypes.put(MessageProducerTypeName.CONSTANT_SIZE_SMALL, () -> small);
+		messageProducerTypes.put(MessageProducerTypeName.CONSTANT_SIZE_LARGER, () -> larger);
+		messageProducerTypes.put(MessageProducerTypeName.CONSTANT_SIZE_LARGE, () -> large);
+		messageProducerTypes.put(
+			MessageProducerTypeName.VARIABLE_SIZE,
+			() -> strings[rotate.getAndIncrement() % strings.length]
+		);
+	}
 }
