@@ -61,7 +61,13 @@ redis.pipeline()
 This will result in a `List<Object>` containing a list for each of the responses.
 
 ## Is the connection thread safe?
-No. You need to make sure that the connection is accessed atomically.
+No. You need to make sure that the connection is accessed atomically. However,
+there is a `Redis.run()` method which you can use to do some simple redis
+operations in isolation. It creates a connection and closes it directly after:
+
+```java
+nl.melp.redis.Redis.run((redis) -> redis.call("INCR", "mycounter"));
+```
 
 ## How should I manage my connections?
 However you wish. This library is a protocol implementation only. Managing a
@@ -78,7 +84,11 @@ creating a lot of threads and not a lot of these threads need the connection,
 you probably want to implement a pool. 
 
 Summarizing, this is a trade-off which you can decide on for your own.
-Generally speaking: don't overcomplicate stuff without good reason.
+Generally speaking: don't overcomplicate stuff without good reason. 
+
+In terms of performance: creating socket connections on-the-fly is comparable
+to reusing connections. See the performance tests inside RedisTest for more 
+information.
 
 ## Questions? Issues?
 Feel free to report issues here.
