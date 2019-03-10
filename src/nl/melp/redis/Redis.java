@@ -36,14 +36,13 @@ public class Redis {
 		}
 
 		/**
-		 * Write a string in the "RESP Bulk String" format.
+		 * Write a byte array in the "RESP Bulk String" format.
 		 *
-		 * @param str The string to write.
+		 * @param value The byte array to write.
 		 * @throws IOException Propagated from the output stream.
 		 * @link https://redis.io/topics/protocol#resp-bulk-strings
 		 */
-		void write(String str) throws IOException {
-			byte[] value = str.getBytes();
+		void write(byte[] value) throws IOException {
 			out.write('$');
 			out.write(Long.toString(value.length).getBytes());
 			out.write(CRLF);
@@ -78,8 +77,10 @@ public class Redis {
 			out.write(CRLF);
 
 			for (Object o : list) {
-				if (o instanceof String) {
-					write((String) o);
+				if (o instanceof byte[]) {
+					write((byte[])o);
+				} else if (o instanceof String) {
+					write(((String) o).getBytes());
 				} else if (o instanceof Long) {
 					write((Long) o);
 				} else if (o instanceof Integer) {
@@ -151,7 +152,7 @@ public class Redis {
 					ret = this.parseSimpleString();
 					break;
 				case '-':
-					throw new ServerError(this.parseSimpleString());
+					throw new ServerError(new String(this.parseSimpleString()));
 				case ':':
 					ret = this.parseNumber();
 					break;
@@ -185,7 +186,7 @@ public class Redis {
 		 * @return The parsed response
 		 * @throws IOException Propagated from underlying stream.
 		 */
-		private String parseBulkString() throws IOException, ProtocolException {
+		private byte[] parseBulkString() throws IOException, ProtocolException {
 			final long expectedLength = parseNumber();
 			if (expectedLength == -1) {
 				return null;
@@ -206,7 +207,7 @@ public class Redis {
 				throw new ProtocolException("Expected LF");
 			}
 
-			return new String(buffer);
+			return buffer;
 		}
 
 		/**
@@ -215,8 +216,8 @@ public class Redis {
 		 * @return Resultant string
 		 * @throws IOException Propagated from underlying stream.
 		 */
-		private String parseSimpleString() throws IOException {
-			return new String(scanCr(1024));
+		private byte[] parseSimpleString() throws IOException {
+			return scanCr(1024);
 		}
 
 		private long parseNumber() throws IOException {
@@ -298,7 +299,7 @@ public class Redis {
 	 *
 	 * @throws IOException All protocol and io errors are IO exceptions.
 	 */
-	public <T> T call(String... args) throws IOException {
+	public <T> T call(Object... args) throws IOException {
 		writer.write(Arrays.asList((Object[]) args));
 		writer.flush();
 		return (T) reader.parse();
