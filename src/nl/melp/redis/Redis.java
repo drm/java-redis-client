@@ -71,7 +71,7 @@ public class Redis {
 		 * @throws IllegalArgumentException If the list contains unencodable objects.
 		 * @link https://redis.io/topics/protocol#resp-arrays
 		 */
-		void write(List<Object> list) throws IOException, IllegalArgumentException {
+		void write(List<?> list) throws IOException, IllegalArgumentException {
 			out.write('*');
 			out.write(Long.toString(list.size()).getBytes());
 			out.write(CRLF);
@@ -86,7 +86,7 @@ public class Redis {
 				} else if (o instanceof Integer) {
 					write(((Integer) o).longValue());
 				} else if (o instanceof List) {
-					write((List) o);
+					write((List<?>) o);
 				} else {
 					throw new IllegalArgumentException("Unexpected type " + o.getClass().getCanonicalName());
 				}

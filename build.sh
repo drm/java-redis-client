@@ -6,4 +6,10 @@ set -e
 mkdir -p bin;
 
 javac $(find src -name "*.java") $(find test -name "*.java") -d bin
-cd bin && jar -cvf ./java-redis-client-$(git describe)--$(javac -version 2>&1 | sed 's/[^a-z0-9._]\+/-/g').jar $(find . -name "*.class")
+(
+    cd bin;
+    jar -cvfe \
+        ./java-redis-client-$(git describe)--$(javac -version 2>&1 | sed 's/[^a-z0-9._]\+/-/g').jar \
+        nl.melp.redis.RedisTest \
+        $(find . -name "*.class")
+);
