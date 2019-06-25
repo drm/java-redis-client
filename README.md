@@ -17,7 +17,7 @@ System.out.println(r.call("GET", "foo")); // will print '579'
 ## How data is parsed
 
 * Error responses are translated to an Exception (`nl.melp.redis.Redis.Parser.ServerError`)
-* Strings become `String`
+* Strings become `byte[]`
 * Numbers become `Long`
 * Arrays become List<Object>, where the entry can be any of `String`, 
   `Long` or `List<Object>`.
