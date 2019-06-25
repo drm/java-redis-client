@@ -3,12 +3,10 @@ package nl.melp.redis;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -28,6 +26,7 @@ public class RedisTest {
 		bufferSizePerformanceTest(16, 16);
 		socketManagementPerformanceTest();
 		binaryTest();
+		subscribeTest();
 	}
 
 	private static void assertEqual(String a, String b) {
@@ -195,6 +194,18 @@ public class RedisTest {
 		r.shutdown();
 		r.awaitTermination(2, TimeUnit.SECONDS);
 		assertTrue(b.get());
+
+		exec.accept((redis) -> {
+			redis.call("SET", "foo", "val");
+			redis.call("PEXPIRE", "foo", "100");
+			try {
+				Thread.sleep(101);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+				throw new RuntimeException(e);
+			}
+			assertTrue(null == redis.call("GET", "foo"));
+		});
 	}
 
 	private static void bufferSizePerformanceTest(int numBitsFrom, int numBitsTo) throws IOException, InterruptedException {
@@ -341,6 +352,85 @@ public class RedisTest {
 
 //			assertTrue(redis.<String>call("GET", "foo").getBytes().length == 1024);
 		}, "localhost", 6379);
+	}
+
+
+	public static void subscribeTest() throws IOException, InterruptedException {
+		List<String> events =  Collections.synchronizedList(new LinkedList<>());
+
+		ExecutorService s = Executors.newFixedThreadPool(2);
+		Redis.run(
+			redis -> {
+				redis.call("CONFIG", "SET", "notify-keyspace-events", "AKE");
+			}, "localhost", 6379
+		);
+		AtomicInteger n = new AtomicInteger(0);
+
+		s.submit(() -> {
+			try {
+				System.out.println("Subscription starting");
+				Socket timeoutSocket = new Socket("localhost", 6379);
+				timeoutSocket.setSoTimeout(1500);
+				try {
+					Redis.run(redis -> {
+						redis.call("PSUBSCRIBE", "__keyevent@0__:*", "*");
+						LinkedList<Object> result;
+						try {
+							while ((result = redis.read()) != null) {
+								try {
+									System.out.println("Received event " + String.join(", ", result.stream().map(r -> new String((byte[])r)).toArray(String[]::new)));
+								} catch (ClassCastException e) {
+									continue;
+								}
+								if (
+									result.get(0) instanceof byte[] && Arrays.equals((byte[])result.get(0), "pmessage".getBytes())
+									&& result.get(1) instanceof byte[] && Arrays.equals((byte[])result.get(1), "__keyevent@0__:*".getBytes())
+								) {
+									events.add(new String((byte[])result.get(2)).replace("__keyevent@0__:", "") + ":" + new String((byte[])result.get(3)));
+								}
+							}
+						} catch (SocketTimeoutException ignored) {
+						} catch (Exception e) {
+							e.printStackTrace();
+						}
+					}, timeoutSocket);
+				} catch (SocketTimeoutException ignored) {
+				}
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			n.incrementAndGet();
+		});
+		Thread.sleep(1000);
+
+		s.submit(() -> {
+			try {
+				Redis.run(redis -> {
+					redis.call("SET", "a", "b");
+					redis.call("PEXPIRE", "a", "100");
+					try {
+						// so the key will expire
+						Thread.sleep(500);
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}
+				}, "localhost", 6379);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			n.incrementAndGet();
+		});
+
+		while (n.get() < 2) {
+			System.out.println("Waiting for both threads to finish");
+			Thread.sleep(100);
+		}
+		s.shutdown();
+		s.awaitTermination(1000, TimeUnit.MILLISECONDS);
+
+		assertTrue(events.get(0).equals("set:a"));
+		assertTrue(events.get(1).equals("expire:a"));
+		assertTrue(events.get(2).equals("expired:a"));
 	}
 
 
