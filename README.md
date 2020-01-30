@@ -90,5 +90,11 @@ In terms of performance: creating socket connections on-the-fly is comparable
 to reusing connections. See the performance tests inside RedisTest for more 
 information.
 
+## See also
+
+See [drm/java-redis-collections](https://github.com/drm/java-redis-collections)
+for collection implementations which can be used to manage your application
+runtime data in redis.
+
 ## Questions? Issues?
 Feel free to report issues here.
