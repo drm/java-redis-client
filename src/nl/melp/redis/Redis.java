@@ -1,5 +1,8 @@
 package nl.melp.redis;
 
+import nl.melp.redis.protocol.Encoder;
+import nl.melp.redis.protocol.Parser;
+
 import java.io.*;
 import java.net.Socket;
 import java.util.Arrays;
@@ -12,237 +15,6 @@ import java.util.List;
  * Effectively a complete Redis client implementation.
  */
 public class Redis {
-	/**
-	 * Implements the encoding (writing) side.
-	 */
-	static class Encoder {
-		/**
-		 * CRLF is used a lot.
-		 */
-		private static byte[] CRLF = new byte[]{'\r', '\n'};
-
-		/**
-		 * This stream we will write to.
-		 */
-		private final OutputStream out;
-
-		/**
-		 * Construct the encoder with the passed outputstream the encoder will write to.
-		 *
-		 * @param out Will be used to write all encoded data to.
-		 */
-		Encoder(OutputStream out) {
-			this.out = out;
-		}
-
-		/**
-		 * Write a byte array in the "RESP Bulk String" format.
-		 *
-		 * @param value The byte array to write.
-		 * @throws IOException Propagated from the output stream.
-		 * @link https://redis.io/topics/protocol#resp-bulk-strings
-		 */
-		void write(byte[] value) throws IOException {
-			out.write('$');
-			out.write(Long.toString(value.length).getBytes());
-			out.write(CRLF);
-			out.write(value);
-			out.write(CRLF);
-		}
-
-		/**
-		 * Write a long value in the "RESP Integers" format.
-		 *
-		 * @param val The value to write.
-		 * @throws IOException Propagated from the output stream.
-		 * @link https://redis.io/topics/protocol#resp-integers
-		 */
-		void write(long val) throws IOException {
-			out.write(':');
-			out.write(Long.toString(val).getBytes());
-			out.write(CRLF);
-		}
-
-		/**
-		 * Write a list of objects in the "RESP Arrays" format.
-		 *
-		 * @param list A list of objects that contains Strings, Longs, Integers and (recursively) Lists.
-		 * @throws IOException              Propagated from the output stream.
-		 * @throws IllegalArgumentException If the list contains unencodable objects.
-		 * @link https://redis.io/topics/protocol#resp-arrays
-		 */
-		void write(List<?> list) throws IOException, IllegalArgumentException {
-			out.write('*');
-			out.write(Long.toString(list.size()).getBytes());
-			out.write(CRLF);
-
-			for (Object o : list) {
-				if (o instanceof byte[]) {
-					write((byte[]) o);
-				} else if (o instanceof String) {
-					write(((String) o).getBytes());
-				} else if (o instanceof Long) {
-					write((Long) o);
-				} else if (o instanceof Integer) {
-					write(((Integer) o).longValue());
-				} else if (o instanceof List) {
-					write((List<?>) o);
-				} else {
-					throw new IllegalArgumentException("Unexpected type " + o.getClass().getCanonicalName());
-				}
-			}
-		}
-
-		void flush() throws IOException {
-			out.flush();
-		}
-	}
-
-	/**
-	 * Implements the parser (reader) side of protocol.
-	 */
-	static class Parser {
-		/**
-		 * Thrown whenever data could not be parsed.
-		 */
-		static class ProtocolException extends IOException {
-			ProtocolException(String msg) {
-				super(msg);
-			}
-		}
-
-		/**
-		 * Thrown whenever an error string is decoded.
-		 */
-		static class ServerError extends IOException {
-			ServerError(String msg) {
-				super(msg);
-			}
-		}
-
-		/**
-		 * The input stream used to read the data from.
-		 */
-		private final InputStream input;
-
-		/**
-		 * Constructor.
-		 *
-		 * @param input The stream to read the data from.
-		 */
-		Parser(InputStream input) {
-			this.input = input;
-		}
-
-		/**
-		 * Parse incoming data from the stream.
-		 * <p>
-		 * Based on each of the markers which will identify the type of data being sent, the parsing
-		 * is delegated to the type-specific methods.
-		 *
-		 * @return The parsed object
-		 * @throws IOException       Propagated from the stream
-		 * @throws ProtocolException In case unexpected bytes are encountered.
-		 */
-		Object parse() throws IOException, ProtocolException {
-			Object ret;
-			int read = this.input.read();
-			switch (read) {
-				case '+':
-					ret = this.parseSimpleString();
-					break;
-				case '-':
-					throw new ServerError(new String(this.parseSimpleString()));
-				case ':':
-					ret = this.parseNumber();
-					break;
-				case '$':
-					ret = this.parseBulkString();
-					break;
-				case '*':
-					long len = this.parseNumber();
-					if (len == -1) {
-						ret = null;
-					} else {
-						List<Object> arr = new LinkedList<>();
-						for (long i = 0; i < len; i++) {
-							arr.add(this.parse());
-						}
-						ret = arr;
-					}
-					break;
-				case -1:
-					return null;
-				default:
-					throw new ProtocolException("Unexpected input: " + (byte) read);
-			}
-
-			return ret;
-		}
-
-		/**
-		 * Parse "RESP Bulk string" as a String object.
-		 *
-		 * @return The parsed response
-		 * @throws IOException Propagated from underlying stream.
-		 */
-		private byte[] parseBulkString() throws IOException, ProtocolException {
-			final long expectedLength = parseNumber();
-			if (expectedLength == -1) {
-				return null;
-			}
-			if (expectedLength > Integer.MAX_VALUE) {
-				throw new ProtocolException("Unsupported value length for bulk string");
-			}
-			final int numBytes = (int) expectedLength;
-			final byte[] buffer = new byte[numBytes];
-			int read = 0;
-			while (read < expectedLength) {
-				read += input.read(buffer, read, numBytes - read);
-			}
-			if (input.read() != '\r') {
-				throw new ProtocolException("Expected CR");
-			}
-			if (input.read() != '\n') {
-				throw new ProtocolException("Expected LF");
-			}
-
-			return buffer;
-		}
-
-		/**
-		 * Parse "RESP Simple String"
-		 *
-		 * @return Resultant string
-		 * @throws IOException Propagated from underlying stream.
-		 */
-		private byte[] parseSimpleString() throws IOException {
-			return scanCr(1024);
-		}
-
-		private long parseNumber() throws IOException {
-			return Long.valueOf(new String(scanCr(1024)));
-		}
-
-		private byte[] scanCr(int size) throws IOException {
-			int idx = 0;
-			int ch;
-			byte[] buffer = new byte[size];
-			while ((ch = input.read()) != '\r') {
-				buffer[idx++] = (byte) ch;
-				if (idx == size) {
-					// increase buffer size.
-					size *= 2;
-					buffer = java.util.Arrays.copyOf(buffer, size);
-				}
-			}
-			if (input.read() != '\n') {
-				throw new ProtocolException("Expected LF");
-			}
-
-			return Arrays.copyOfRange(buffer, 0, idx);
-		}
-	}
 
 	/**
 	 * Used for writing the data to the server.
@@ -378,12 +150,52 @@ public class Redis {
 	 * @throws IOException Propagated
 	 */
 	public static void run(FailableConsumer<Redis, IOException> callback, String addr, int port) throws IOException {
-		try (Socket s = new Socket(addr, port)) {
-			run(callback, s);
+		try (Managed redis = connect(addr, port)) {
+			callback.accept(redis);
 		}
 	}
 
+	/**
+	 * Utility method to run a single command on an existing socket.
+	 *
+	 * Note that this does not close the connection!
+	 *
+	 * @param callback 	The callback to perform with redis.
+	 * @param s     	Connection socket
+	 * @throws IOException Propagated
+	 */
 	public static void run(FailableConsumer<Redis, IOException> callback, Socket s) throws IOException {
 		callback.accept(new Redis(s));
+	}
+
+	/**
+	 * Autocloseable implementation of Redis.
+	 */
+	public abstract static class Managed extends Redis implements AutoCloseable {
+		Managed(Socket s) throws IOException {
+			super(s);
+		}
+
+		abstract public void close() throws IOException;
+	}
+
+	/**
+	 * Create a "managed" connection, i.e. one that is cleanly closed (with a QUIT call), implemented as
+	 * an Autoclosable.
+	 *
+	 * @param host	Redis host
+	 * @param port	Redis port
+	 * @return The Autoclosable implementation
+	 * @throws IOException Propagated
+	 */
+	public static Managed connect(String host, int port) throws IOException {
+		Socket s = new Socket(host, port);
+		return new Managed(s) {
+			@Override
+			public void close() throws IOException {
+				call("QUIT");
+				s.close();
+			}
+		};
 	}
 }

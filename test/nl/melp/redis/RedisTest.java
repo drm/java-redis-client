@@ -1,12 +1,20 @@
 package nl.melp.redis;
 
+import nl.melp.redis.protocol.Parser;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -19,14 +27,19 @@ import java.util.function.Supplier;
 
 public class RedisTest {
 	public static void main(String[] args) throws IOException, InterruptedException {
-		testParse();
-		integrationTest();
-		// 16 bits buffer size (2 ^ 16, 1<<16) seems to be the most efficient for any value size.
-		// tweak these numbers to check if this is the case for you.
-		bufferSizePerformanceTest(16, 16);
-		socketManagementPerformanceTest();
-		binaryTest();
-		subscribeTest();
+		if (args.length == 0) {
+			testParse();
+			managedTest();
+			integrationTest();
+			// 16 bits buffer size (2 ^ 16, 1<<16) seems to be the most efficient for any value size.
+			// tweak these numbers to check if this is the case for you.
+			bufferSizePerformanceTest(16, 16);
+			socketManagementPerformanceTest();
+			binaryTest();
+			subscribeTest();
+
+			System.out.println("\nEverything seems to be alright.");
+		}
 	}
 
 	private static void assertEqual(String a, String b) {
@@ -48,23 +61,23 @@ public class RedisTest {
 	}
 
 	private static void testParse() throws IOException {
-		assertEqual(new String((byte[])new Redis.Parser(new ByteArrayInputStream("+OK\r\n".getBytes())).parse()), "OK");
-		assertEqual((Long) new Redis.Parser(new ByteArrayInputStream(":1000\r\n".getBytes())).parse(), 1000);
-		assertEqual(new String((byte[])new Redis.Parser(new ByteArrayInputStream("+OK\r\n".getBytes())).parse()), "OK");
+		assertEqual(new String((byte[])new Parser(new ByteArrayInputStream("+OK\r\n".getBytes())).parse()), "OK");
+		assertEqual((Long) new Parser(new ByteArrayInputStream(":1000\r\n".getBytes())).parse(), 1000);
+		assertEqual(new String((byte[])new Parser(new ByteArrayInputStream("+OK\r\n".getBytes())).parse()), "OK");
 		assertTrue(
-			new Redis.Parser(new ByteArrayInputStream("$-1\r\n".getBytes())).parse() == null
+			new Parser(new ByteArrayInputStream("$-1\r\n".getBytes())).parse() == null
 		);
 		assertEqual(
-			new String((byte[]) new Redis.Parser(new ByteArrayInputStream("$10\r\n0123456789\r\n".getBytes())).parse()),
+			new String((byte[]) new Parser(new ByteArrayInputStream("$10\r\n0123456789\r\n".getBytes())).parse()),
 			"0123456789"
 		);
 
 		assertEqual(
-			new String((byte[]) new Redis.Parser(new ByteArrayInputStream("$12\r\n01234\r\n56789\r\n".getBytes())).parse()),
+			new String((byte[]) new Parser(new ByteArrayInputStream("$12\r\n01234\r\n56789\r\n".getBytes())).parse()),
 			"01234\r\n56789"
 		);
 
-		List arr = (List) new Redis.Parser(new ByteArrayInputStream("*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n:5\r\n".getBytes())).parse();
+		List arr = (List) new Parser(new ByteArrayInputStream("*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n:5\r\n".getBytes())).parse();
 		assertEqual(arr.size(), 5);
 		assertEqual((Long) arr.get(0), 1);
 		assertEqual((Long) arr.get(1), 2);
@@ -72,7 +85,7 @@ public class RedisTest {
 		assertEqual((Long) arr.get(3), 4);
 		assertEqual((Long) arr.get(4), 5);
 
-		List arr2 = (List) new Redis.Parser(new ByteArrayInputStream("*1\r\n$5\r\n12345\r\n".getBytes())).parse();
+		List arr2 = (List) new Parser(new ByteArrayInputStream("*1\r\n$5\r\n12345\r\n".getBytes())).parse();
 		assertEqual(arr2.size(), 1);
 		assertEqual(new String((byte[])arr2.get(0)), "12345");
 		System.out.println("Tests passed successfully: testParse");
@@ -352,6 +365,33 @@ public class RedisTest {
 
 //			assertTrue(redis.<String>call("GET", "foo").getBytes().length == 1024);
 		}, "localhost", 6379);
+	}
+
+	public static void managedTest() throws IOException {
+		Supplier<Integer> countClients = () -> {
+			AtomicInteger numClients = new AtomicInteger(0);
+			try {
+				Redis.run((r) -> {
+					String response = new String(r.<byte[]>call("CLIENT", "LIST", "TYPE", "normal"));
+					numClients.set(response.split("\n").length);
+				}, "localhost", 6379);
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
+			final int ret = numClients.get();
+			System.out.printf("Connected clients now: %d\n", ret);
+			return ret;
+		};
+
+		int before = countClients.get();
+		try (Redis.Managed r = Redis.connect("localhost", 6379)) {
+			if (countClients.get() <= before) {
+				throw new IllegalStateException("Expected number of connected clients to be less than " + before);
+			}
+		}
+		if (countClients.get() != before) {
+			throw new IllegalStateException("Expected number of connected clients to be equal to " + before);
+		}
 	}
 
 
