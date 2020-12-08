@@ -26,16 +26,24 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 public class RedisTest {
+	private static final String REDIS_HOST = System.getProperty("redis.host", "localhost");
+	private static final int REDIS_PORT = Integer.parseInt(System.getProperty("redis.port", "6379"));
+	private static final int numThreads = Integer.parseInt(System.getProperty("redis.test.num-threads", "200"));
+	private static final int numMessages = Integer.parseInt(System.getProperty("redis.test.num-messages", "25000"));
+
+	// 16 bits buffer size (2 ^ 16, 1<<16) seems to be the most efficient for any value size.
+	// tweak these numbers to check if this is the case for you.
+	private static final int numBitsFrom = Integer.parseInt(System.getProperty("redis.test.num-bits-from", "16"));
+	private static final int numBitsTo = Integer.parseInt(System.getProperty("redis.test.num-bits-to", "16"));
+
 	public static void main(String[] args) throws IOException, InterruptedException {
 		if (args.length == 0) {
 			testParse();
+			binaryTest();
 			managedTest();
 			integrationTest();
-			// 16 bits buffer size (2 ^ 16, 1<<16) seems to be the most efficient for any value size.
-			// tweak these numbers to check if this is the case for you.
-			bufferSizePerformanceTest(16, 16);
+			bufferSizePerformanceTest();
 			socketManagementPerformanceTest();
-			binaryTest();
 			subscribeTest();
 
 			System.out.println("\nEverything seems to be alright.");
@@ -77,7 +85,7 @@ public class RedisTest {
 			"01234\r\n56789"
 		);
 
-		List arr = (List) new Parser(new ByteArrayInputStream("*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n:5\r\n".getBytes())).parse();
+		List<?> arr = (List<?>) new Parser(new ByteArrayInputStream("*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n:5\r\n".getBytes())).parse();
 		assertEqual(arr.size(), 5);
 		assertEqual((Long) arr.get(0), 1);
 		assertEqual((Long) arr.get(1), 2);
@@ -85,7 +93,7 @@ public class RedisTest {
 		assertEqual((Long) arr.get(3), 4);
 		assertEqual((Long) arr.get(4), 5);
 
-		List arr2 = (List) new Parser(new ByteArrayInputStream("*1\r\n$5\r\n12345\r\n".getBytes())).parse();
+		List<?> arr2 = (List<?>) new Parser(new ByteArrayInputStream("*1\r\n$5\r\n12345\r\n".getBytes())).parse();
 		assertEqual(arr2.size(), 1);
 		assertEqual(new String((byte[])arr2.get(0)), "12345");
 		System.out.println("Tests passed successfully: testParse");
@@ -95,7 +103,7 @@ public class RedisTest {
 		final String keyName = RedisTest.class.getCanonicalName();
 		Consumer<Redis.FailableConsumer<Redis, IOException>> exec = (consumer) -> {
 			try {
-				Redis.run(consumer, "127.0.0.1", 6379);
+				Redis.run(consumer, "127.0.0.1", REDIS_PORT);
 			} catch (IOException e) {
 				e.printStackTrace();
 				throw new RuntimeException(e);
@@ -142,7 +150,7 @@ public class RedisTest {
 
 		exec.accept(
 			(redis) -> {
-				redis = new Redis(new Socket("127.0.0.1", 6379));
+				redis = new Redis(new Socket("127.0.0.1", REDIS_PORT));
 				List<Object> result = redis.pipeline()
 					.call("INCR", keyName)
 					.call("INCR", keyName)
@@ -174,18 +182,16 @@ public class RedisTest {
 				assertEqual("QUEUED", new String((byte[])result.get(2)));
 				assertEqual("QUEUED", new String((byte[])result.get(3)));
 				assertEqual("QUEUED", new String((byte[])result.get(4)));
-				assertEqual(1, (Long) ((List<Object>) result.get(5)).get(0));
-				assertEqual(2, (Long) ((List<Object>) result.get(5)).get(1));
-				assertEqual(3, (Long) ((List<Object>) result.get(5)).get(2));
-				assertEqual(4, (Long) ((List<Object>) result.get(5)).get(3));
+				assertEqual(1, (Long) ((List<?>) result.get(5)).get(0));
+				assertEqual(2, (Long) ((List<?>) result.get(5)).get(1));
+				assertEqual(3, (Long) ((List<?>) result.get(5)).get(2));
+				assertEqual(4, (Long) ((List<?>) result.get(5)).get(3));
 				redis.call("DEL", keyName);
 			}
 		);
 
 		exec.accept(
-			(redis) -> {
-				redis.call("INFO");
-			}
+			(redis) -> redis.call("INFO")
 		);
 
 		// This test checks if `call` will return null from a disconnected connection.
@@ -221,10 +227,7 @@ public class RedisTest {
 		});
 	}
 
-	private static void bufferSizePerformanceTest(int numBitsFrom, int numBitsTo) throws IOException, InterruptedException {
-		final int numThreads = 200;
-		final int numMessages = 25000;
-
+	private static void bufferSizePerformanceTest() throws IOException, InterruptedException {
 		// Test in- and output buffer sizes.
 		for (Map.Entry<MessageProducerTypeName, Supplier<String>> type : messageProducerTypes.entrySet()) {
 			for (int ab = 0; ab <= 1; ab++) {
@@ -246,9 +249,9 @@ public class RedisTest {
 						() -> {
 							try {
 								if (isInputBufferTest) {
-									return new Redis(new Socket("127.0.0.1", 6379), bufSize, 1 << 16);
+									return new Redis(new Socket("127.0.0.1", REDIS_PORT), bufSize, 1 << 16);
 								} else {
-									return new Redis(new Socket("127.0.0.1", 6379), 1 << 16, bufSize);
+									return new Redis(new Socket("127.0.0.1", REDIS_PORT), 1 << 16, bufSize);
 								}
 							} catch (IOException e) {
 								e.printStackTrace();
@@ -280,11 +283,11 @@ public class RedisTest {
 					try {
 						if (isThreadLocalTest) {
 							if (redis.get() == null) {
-								redis.set(new Redis(new Socket("127.0.0.1", 6379)));
+								redis.set(new Redis(new Socket("127.0.0.1", REDIS_PORT)));
 							}
 							return redis.get();
 						}
-						return new Redis(new Socket("127.0.0.1", 6379));
+						return new Redis(new Socket("127.0.0.1", REDIS_PORT));
 					} catch (IOException e) {
 						e.printStackTrace();
 					}
@@ -325,7 +328,7 @@ public class RedisTest {
 					try {
 						Redis redis2 = connector.get();
 						for (int n = 0; n < numMessages / numThreads; n++) {
-							List value = redis2.call("BLPOP", queueKeyName, "0");
+							List<?> value = redis2.call("BLPOP", queueKeyName, "0");
 							assertTrue(value.get(1) instanceof byte[]);
 							size.addAndGet(((byte[])value.get(1)).length);
 							count.incrementAndGet();
@@ -361,10 +364,8 @@ public class RedisTest {
 
 		Redis.run((redis) -> {
 			redis.call("SET", "foo", bytes);
-			System.out.printf("Byte length: %d", redis.<byte[]>call("GET", "foo").length);
-
-//			assertTrue(redis.<String>call("GET", "foo").getBytes().length == 1024);
-		}, "localhost", 6379);
+			assertEqual(1024, redis.<byte[]>call("GET", "foo").length);
+		}, REDIS_HOST, REDIS_PORT);
 	}
 
 	public static void managedTest() throws IOException {
@@ -374,7 +375,7 @@ public class RedisTest {
 				Redis.run((r) -> {
 					String response = new String(r.<byte[]>call("CLIENT", "LIST", "TYPE", "normal"));
 					numClients.set(response.split("\n").length);
-				}, "localhost", 6379);
+				}, REDIS_HOST, REDIS_PORT);
 			} catch (IOException e) {
 				throw new RuntimeException(e);
 			}
@@ -384,7 +385,7 @@ public class RedisTest {
 		};
 
 		int before = countClients.get();
-		try (Redis.Managed r = Redis.connect("localhost", 6379)) {
+		try (Redis.Managed r = Redis.connect(REDIS_HOST, REDIS_PORT)) {
 			if (countClients.get() <= before) {
 				throw new IllegalStateException("Expected number of connected clients to be less than " + before);
 			}
@@ -400,16 +401,14 @@ public class RedisTest {
 
 		ExecutorService s = Executors.newFixedThreadPool(2);
 		Redis.run(
-			redis -> {
-				redis.call("CONFIG", "SET", "notify-keyspace-events", "AKE");
-			}, "localhost", 6379
+			redis -> redis.call("CONFIG", "SET", "notify-keyspace-events", "AKE"), REDIS_HOST, REDIS_PORT
 		);
 		AtomicInteger n = new AtomicInteger(0);
 
 		s.submit(() -> {
 			try {
 				System.out.println("Subscription starting");
-				Socket timeoutSocket = new Socket("localhost", 6379);
+				Socket timeoutSocket = new Socket(REDIS_HOST, REDIS_PORT);
 				timeoutSocket.setSoTimeout(1500);
 				try {
 					Redis.run(redis -> {
@@ -454,7 +453,7 @@ public class RedisTest {
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}
-				}, "localhost", 6379);
+				}, REDIS_HOST, REDIS_PORT);
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
@@ -548,13 +547,11 @@ public class RedisTest {
 		final String small = msg.substring(0, 256);
 		final String larger = msg;
 		final AtomicInteger rotate = new AtomicInteger(0);
-		final String large = (((Supplier<String>) () -> {
-			StringBuilder tmp = new StringBuilder();
-			for (int i = 0; i < 10; i++) {
-				tmp.append(msg);
-			}
-			return tmp.toString();
-		}).get());
+		StringBuilder tmp = new StringBuilder();
+		for (int i = 0; i < 10; i++) {
+			tmp.append(msg);
+		}
+		final String large = (tmp.toString());
 
 		strings = new String[]{
 			small, larger, large

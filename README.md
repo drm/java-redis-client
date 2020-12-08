@@ -32,7 +32,7 @@ System.out.println((String)l.get(0)); // prints "A"
 ```
 
 You will have to do some casting yourself in case of List responses. The
-reasoning here is that you know what data to expect so you're responsible for
+reasoning here is that you know what data to expect, so you're responsible for
 applying the correct casts in the correct context.  
 
 Refer to the Redis documentation for the return types of all calls and
@@ -61,7 +61,7 @@ redis.pipeline()
 This will result in a `List<Object>` containing a list for each of the responses.
 
 ## Is the connection thread safe?
-No. You need to make sure that the connection is accessed atomically. However,
+No. You need to make sure to access the connection atomically. However,
 there is a `Redis.run()` method which you can use to do some simple redis
 operations in isolation. It creates a connection and closes it directly after:
 
@@ -73,11 +73,11 @@ nl.melp.redis.Redis.run((redis) -> redis.call("INCR", "mycounter"));
 However you wish. This library is a protocol implementation only. Managing a
 connection pool is not at all Redis-specific, so it doesn't belong here.
  
-Having said that, this mostly depends on your use case. Typically if you have a
+Having said that, this mostly depends on your use case. Typically, if you have a
 webserver with 20 threads, you can have a socket per thread managed somewhere
-(e.g. ThreadLocal) and if you run a threadpool with 20 workers you can have one
+(e.g. ThreadLocal) and if you run a thread pool with 20 workers you can have one
 socket per thread there as well. This keeps things simple and practical to
-reason about and you don't have to worry who needs to create the socket at what
+reason about, and you don't have to worry who needs to create the socket at what
 point in time. You do need some error handling which, in case of managing the
 sockets centrally is a tiny bit easier. On the other hand, if you expect to be
 creating a lot of threads and not a lot of these threads need the connection,

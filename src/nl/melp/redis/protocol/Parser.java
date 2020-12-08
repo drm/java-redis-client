@@ -1,7 +1,5 @@
 package nl.melp.redis.protocol;
 
-import nl.melp.redis.Redis;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
@@ -96,7 +94,7 @@ public class Parser {
 	 * @return The parsed response
 	 * @throws IOException Propagated from underlying stream.
 	 */
-	private byte[] parseBulkString() throws IOException, ProtocolException {
+	private byte[] parseBulkString() throws IOException {
 		final long expectedLength = parseNumber();
 		if (expectedLength == -1) {
 			return null;
@@ -127,14 +125,26 @@ public class Parser {
 	 * @throws IOException Propagated from underlying stream.
 	 */
 	private byte[] parseSimpleString() throws IOException {
-		return scanCr(1024);
+		return scanCr();
 	}
 
+	/**
+	 * Parse a number (as long)
+	 * @return The number
+	 * @throws IOException Propagated from underlying stream
+	 */
 	private long parseNumber() throws IOException {
-		return Long.valueOf(new String(scanCr(1024)));
+		return Long.parseLong(new String(scanCr()));
 	}
 
-	private byte[] scanCr(int size) throws IOException {
+	/**
+	 * Scan the input stream for the next CR character
+	 *
+	 * @return Byte array.
+	 * @throws IOException Propagated from underlying stream
+	 */
+	private byte[] scanCr() throws IOException {
+		int size = 1024;
 		int idx = 0;
 		int ch;
 		byte[] buffer = new byte[size];

@@ -11,7 +11,7 @@ public class Encoder {
 	/**
 	 * CRLF is used a lot.
 	 */
-	private static byte[] CRLF = new byte[]{'\r', '\n'};
+	private static final byte[] CRLF = new byte[]{'\r', '\n'};
 
 	/**
 	 * This stream we will write to.
@@ -19,7 +19,7 @@ public class Encoder {
 	private final OutputStream out;
 
 	/**
-	 * Construct the encoder with the passed outputstream the encoder will write to.
+	 * Construct the encoder with the passed output stream the encoder will write to.
 	 *
 	 * @param out Will be used to write all encoded data to.
 	 */
